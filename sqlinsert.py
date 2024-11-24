@@ -57,3 +57,64 @@ def insert_data(image, user_id):
     conn.commit()
     cursor.close()
     conn.close()
+
+def get_bill_data(user_id, category, date):
+    """
+    Retrieve bill data based on user ID, category, and date.
+    Returns tuple of (rows, total) where rows contains bill details and total is the sum
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    
+    try:
+        if category == "All":
+            cursor.execute("""
+                SELECT date, total, businessname
+                FROM billinfo
+                WHERE userid = %s AND date >= %s
+            """, (user_id, date))
+            rows = cursor.fetchall()
+            
+            cursor.execute("""
+                SELECT SUM(total)
+                FROM billinfo
+                WHERE userid = %s AND date >= %s
+            """, (user_id, date))
+            total = cursor.fetchall()
+        else:
+            cursor.execute("""
+                SELECT date, total, businessname
+                FROM billinfo
+                WHERE userid = %s 
+                AND category = %s 
+                AND date >= %s
+            """, (user_id, category, date))
+            rows = cursor.fetchall()
+            
+            cursor.execute("""
+                SELECT SUM(total)
+                FROM billinfo
+                WHERE userid = %s 
+                AND category = %s 
+                AND date >= %s
+            """, (user_id, category, date))
+            total = cursor.fetchall()
+            
+        return rows, total
+    
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_bill_image(query):
+    """Execute query to retrieve bill image"""
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute(query)
+        row = cursor.fetchone()
+        return row
+    finally:
+        cursor.close()
+        conn.close()

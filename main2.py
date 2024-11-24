@@ -17,6 +17,7 @@ from langchain1 import *
 from sqlinsert import is_present, insert_data
 import mysql.connector
 from base64 import b64encode, b64decode
+from dotenv import load_dotenv
 from topdf import to_pdf
 import re
 
@@ -27,6 +28,8 @@ db_config = {
 }
 
 TOKEN: Final = '6943990377:AAG0bItw7XqnMmLRwxAlpY3YzUwq2q2ycQw'
+#TOKEN: Final = os.getenv("BOT_TOKEN")
+
 BOT_USERNAME: Final = '@Automated_billing_bot'
 
 genai.configure(api_key='AIzaSyCAVhwRsGPM__3lskKo44qKNTTpI_IC6xY')
@@ -112,29 +115,8 @@ async def handle_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(downloaded_path)
         await context.bot.send_message(chat_id=update.effective_chat.id, text="This bill has already been uploaded before, try another one.")
 
-client = OpenAI(base_url="http://localhost:1234/v1", api_key="not-needed")
-
-messages = [{'role' : 'system', 'content' : '''Function: Bills processing and casual conversation assistant
-
-Tasks:
-
-Extract data: Use Optical Character Recognition (OCR) to extract date, merchant, and amount from user-uploaded bill images.
-Store data: Securely store extracted data in a database.
-Respond to queries:
-Understand user intent and respond accordingly.
-Answer questions related to stored bills.
-Engage in conversation:
-Respond to general conversation topics beyond bills.
-Access and process information from a safe and reliable source for responses.
-Communication:
-
-Maintain a friendly and helpful tone.
-Use simple and clear language, avoiding technical jargon.
-             stop adding <|im_end|> or and other stuff at the end of the sentences'''
- }]
 
 async def bot_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Returns the reply to user after getting reply from server."""
     global downloaded_path
     global bot_flag
     global dict_responses
@@ -145,20 +127,14 @@ async def bot_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message.text != '' and bot_flag:
         user_input = update.message.text
         llm_reply, flag = get_response(user_input, user.id)
-        if flag == 0: #request image
-            conn = mysql.connector.connect(**db_config)
-            cursor = conn.cursor()
-            cursor.execute(llm_reply)
-            row = cursor.fetchone()
+        if flag == 0:  # request image
+            row = get_bill_image(llm_reply)
             if row:
-                encoded_image = row[0]
-                decoded_image = b64decode(encoded_image)
+                decoded_image = b64decode(row[0])
                 with open('./temp/image.jpg', 'wb') as f:
                     f.write(decoded_image)
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="Here you go...")
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./temp/image.jpg', 'rb'))   
-            cursor.close()
-            conn.close()
             return
     elif not bot_flag:
         date_pattern = re.compile(r'^\d{4}-\d{1,2}-\d{1,2}$')
@@ -176,48 +152,23 @@ async def bot_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=update.effective_chat.id, text="As requested, nothing will be saved.")
             bot_flag = True
         elif date_pattern.match(update.message.text.strip()):
-            dict_responses["date"]=update.message.text
+            dict_responses["date"] = update.message.text
             keyboard = ReplyKeyboardMarkup([[ KeyboardButton("Restaurant"), KeyboardButton("Household"), KeyboardButton("Drugs"), KeyboardButton("Electronics"), KeyboardButton("Groceries"), KeyboardButton("All") ]], resize_keyboard=True, one_time_keyboard=True)
             await context.bot.send_message(chat_id=update.effective_chat.id,text="Please select one of the category proposed.", reply_markup=keyboard)
         elif update.message.text in ["Restaurant","Household","Drugs","Electronics","Groceries","All"]:
-            dict_responses["category"]=update.message.text
+            dict_responses["category"] = update.message.text
             keyboard = ReplyKeyboardMarkup([[ KeyboardButton("LL - Lebanese pound"), KeyboardButton("$ - United States Dollar"), ]], resize_keyboard=True, one_time_keyboard=True)
             await context.bot.send_message(chat_id=update.effective_chat.id,text="Please select a currency.", reply_markup=keyboard)
         elif update.message.text in ["LL - Lebanese pound","$ - United States Dollar"]:
             await context.bot.send_message(chat_id=update.effective_chat.id, text="Working on it...")
-            dict_responses["currency"]=update.message.text
-            conn = mysql.connector.connect(**db_config)
-            cursor = conn.cursor()
-            if dict_responses["category"]=="All":
-                cursor.execute(f"""SELECT date,total,businessname
-                            FROM billinfo
-                            WHERE userid='{user.id}'
-                            AND date>='{dict_responses['date']}'""")
-                rows = cursor.fetchall()
-                cursor.execute(f"""SELECT SUM(total)
-                            FROM billinfo
-                            WHERE userid='{user.id}'
-                            AND date>='{dict_responses['date']}'""")
-                total = cursor.fetchall()
-            else:
-                cursor.execute(f"""SELECT date,total,businessname
-                            FROM billinfo
-                            WHERE userid='{user.id}'
-                            AND billinfo.category='{dict_responses['category']}'
-                            AND billinfo.date>='{dict_responses['date']}'""")
-                rows = cursor.fetchall()
-                cursor.execute(f"""SELECT SUM(total)
-                            FROM billinfo
-                            WHERE userid='{user.id}'
-                            AND category='{dict_responses['category']}'
-                            AND date>='{dict_responses['date']}'""")
-                total = cursor.fetchall()
-            cursor.close()
-            conn.close()
+            dict_responses["currency"] = update.message.text
+            
+            rows, total = get_bill_data(user.id, dict_responses["category"], dict_responses["date"])
+            
             if not rows:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="The report will not be generated as the database in empty.")
             else:
-                await to_pdf(total,rows,dict_responses)
+                await to_pdf(total, rows, dict_responses)
                 await context.bot.send_document(chat_id=update.effective_chat.id, document=open('AutomatedPDF.pdf', 'rb'))  
             bot_flag = True
         else:
@@ -226,7 +177,7 @@ async def bot_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I did not understand.")
             bot_flag = True
         return
-    await context.bot.send_message(chat_id=update.effective_chat.id, text = llm_reply)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=llm_reply)
 
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.error and isinstance(context.error, TypeError) and "'NoneType' object is not iterable" in str(context.error):
