@@ -4,10 +4,12 @@ import os
 import requests
 import re
 
-url = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
+#Constants
+EXCHANGE_RATE_API_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
+OCR_OUTPUT_FILE = 'ocr_return.json'
 
 def process_bill(img_path, chat, ocr):
-    response = requests.get(url)
+    response = requests.get(EXCHANGE_RATE_API_URL)
     tmp = response.json()
     exchange_rate = tmp['conversion_rates']['LBP']
     data = {}
@@ -48,7 +50,7 @@ def process_bill(img_path, chat, ocr):
     data['check_id'] = response.text
     data['total'] = 0
 
-    with open('ocr_return.json', 'w') as json_file:
+    with open(OCR_OUTPUT_FILE, 'w') as json_file:
         json.dump(data, json_file, indent=4)
 
     response=chat.send_message("Give me all the items displayed in this invoice in form of a dictionary:" + res + "\nin a python list in a format ['quantity','name','price'], for example: [['Quantity1','Name1','Price1'],['Quantity2','Name2','Price2']].")
@@ -84,14 +86,14 @@ def process_bill(img_path, chat, ocr):
         i += 1
     data['total'] = str(int(total))
 
-    with open('ocr_return.json', 'w') as json_file:
+    with open(OCR_OUTPUT_FILE, 'w') as json_file:
         json.dump(data, json_file, indent=4)
 
     return data
 
 def removeReturn():
-    if os.path.exists('ocr_return.json'):
-        os.remove('ocr_return.json')
+    if os.path.exists(OCR_OUTPUT_FILE):
+        os.remove(OCR_OUTPUT_FILE)
     return {}
 
 def check(var):
