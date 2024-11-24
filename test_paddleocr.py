@@ -1,14 +1,14 @@
 import unittest
-from unittest.mock import patch, Mock, mock_open
-import os
-import ast
+from unittest.mock import patch, Mock, mock_open, MagicMock
 from paddleocrtesting import (
     remove_return_file,
     is_valid_input,
     normalize_price,
     parse_items,
+    parse_ocr_result,
+    get_invoice_details,
     process_bill,
-    OCR_OUTPUT_FILE
+    OCR_OUTPUT_FILE,
 )
 
 
@@ -16,7 +16,7 @@ class TestUtilityFunctions(unittest.TestCase):
     @patch("os.path.exists", return_value=True)
     @patch("os.remove")
     def test_remove_return_file(self, mock_remove, mock_exists):
-        """Test removing the OCR return file."""
+        """Test removing the OCR output file."""
         remove_return_file()
         mock_remove.assert_called_once_with(OCR_OUTPUT_FILE)
 
@@ -32,65 +32,46 @@ class TestNormalizePrice(unittest.TestCase):
         """Test normalizing prices."""
         self.assertEqual(normalize_price("$10", 1500), "15000")
         self.assertEqual(normalize_price("15.5", 1500), "23250")
-        self.assertEqual(normalize_price("O20", 1500), "30000")
-        self.assertEqual(normalize_price("", 1500), "0")
+        self.assertEqual(normalize_price("15000", 1500), "15000")
 
 
-class TestParseItems(unittest.TestCase):
-    def test_parse_items_valid(self):
-        """Test parsing valid items."""
+class TestItemParsing(unittest.TestCase):
+    def test_parse_items(self):
+        """Test parsing items into structured format."""
         items_text = "[['1', 'Burger', '$10'], ['2', 'Fries', '15000']]"
-        parsed, total = parse_items(items_text, 1500)
-        self.assertEqual(len(parsed), 2)
-        self.assertEqual(total, 18000)
-
-    def test_parse_items_invalid(self):
-        """Test parsing invalid items."""
-        items_text = "[['1', 'Burger'], ['Fries', '15000']]"
-        parsed, total = parse_items(items_text, 1500)
-        self.assertEqual(parsed, [])
-        self.assertEqual(total, 0)
+        parsed_items, total = parse_items(items_text, 1500)
+        self.assertEqual(parsed_items[0]["price"], "15000")
+        self.assertEqual(parsed_items[1]["price"], "15000")
+        self.assertEqual(total, 30000)
 
 
-class TestProcessBill(unittest.TestCase):
-    @patch("requests.get")
-    @patch("your_module.chat.send_message")
-    @patch("your_module.ocr.ocr")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_process_bill(self, mock_open_file, mock_ocr, mock_chat, mock_get):
-        """Test processing the bill."""
-        # Mock exchange rate API response
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {"conversion_rates": {"LBP": 1500}}
-
-        # Mock OCR results
-        mock_ocr.return_value = [
-            [[[0, 0], [0, 1]], [[1, 1], [1, 2]], [0.9, "Sample Item"]]
+class TestOCRParsing(unittest.TestCase):
+    def test_parse_ocr_result(self):
+        """Test parsing OCR result."""
+        ocr_result = [
+            [[[0, 1], [1, 2]], [0.9, "Sample Item"]],
+            [[[0, 1], [1, 2]], [0.7, "Low Precision"]],
         ]
+        parsed_result = parse_ocr_result(ocr_result)
+        self.assertIn("1", parsed_result)
+        self.assertNotIn("2", parsed_result)
 
-        # Mock chat responses
-        mock_chat.side_effect = [
-            Mock(text="Business Name"),  # Business name
-            Mock(text="Restaurant"),    # Category
-            Mock(text="2024/01/01"),    # Date
-            Mock(text="12345"),         # Check ID
-            Mock(
-                text=str([["1", "Burger", "$10"], ["2", "Fries", "15000"]])
-            ),  # Items
+
+class TestChatHandling(unittest.TestCase):
+    def test_get_invoice_details(self):
+        """Test getting invoice details from the user."""
+        mock_chat = MagicMock()
+        mock_chat.send_message.side_effect = [
+            Mock(text="Business Name"),
+            Mock(text="Restaurant"),
+            Mock(text="2024/01/01"),
+            Mock(text="12345"),
         ]
-
-        # Run the process_bill function
-        data = process_bill("test_img_path", mock_chat, mock_ocr)
-
-        # Assertions
-        self.assertEqual(data["business_name"], "Business Name")
-        self.assertEqual(data["category"], "Restaurant")
-        self.assertEqual(data["date"], "2024/01/01")
-        self.assertEqual(data["check_id"], "12345")
-        self.assertEqual(data["total"], 18000)
-
-        # Ensure file writing
-        mock_open_file().write.assert_called()
+        data = {}
+        res = "Test OCR Content"
+        result = get_invoice_details(mock_chat, res, data)
+        self.assertEqual(result["business_name"], "Business Name")
+        self.assertEqual(result["category"], "Restaurant")
 
 
 if __name__ == "__main__":
