@@ -6,13 +6,20 @@ LBP_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/LB
 USD_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
 PDF_FILENAME = "AutomatedPDF.pdf"
 
+def fetch_exchange_rate(url):
+    """Fetch exchange rate from the given URL."""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()['conversion_rates']
+    except requests.RequestException as e:
+        print(f"Error fetching data: {e}")
+        return None
+
+
 async def to_pdf(total,rows,dict_responses):
-    response = requests.get(LBP_URL)
-    data = response.json()
-    exchange_rate = data['conversion_rates']['USD']
-    response = requests.get(USD_URL)
-    data = response.json()
-    exchange_rate2 = data['conversion_rates']['LBP']
+    lbp_rates = fetch_exchange_rate(LBP_URL)
+    usd_rates = fetch_exchange_rate(USD_URL)
     pdf = FPDF()
     pdf.add_page()
     pdf.image("logo.png", x=10, y=10, w=50)
@@ -26,7 +33,7 @@ async def to_pdf(total,rows,dict_responses):
     pdf.set_font("Times", size=15, style='B')
     pdf.cell(200, 8, txt = "Report", ln = 1, align = 'C')
     pdf.set_font("Times", size=12)
-    pdf.cell(200, 5, txt = "Exchange rate: " + str(int(exchange_rate2)) + " LL", ln = 1, align = 'C')
+    pdf.cell(200, 5, txt = "Exchange rate: " + str(int(lbp_rates)) + " LL", ln = 1, align = 'C')
     pdf.set_font("Times", size=10)
     pdf.set_fill_color(169, 169, 169)
     pdf.ln()
@@ -52,7 +59,7 @@ async def to_pdf(total,rows,dict_responses):
             pdf.cell(35, 7, txt=f"{row[1]} LL", border=1, fill=True)
         else:
             tmp = row[1]
-            tmp*=exchange_rate
+            tmp*= usd_rates
             pdf.cell(35, 7, txt=f"$ {round(tmp)}", border=1, fill=True)
 
         pdf.ln()
@@ -66,7 +73,7 @@ async def to_pdf(total,rows,dict_responses):
         pdf.cell(35, 7, txt=f"{total} LL", border=1)
     else:
         total = float(total[0][0])
-        total *= exchange_rate
+        total *= usd_rates
         pdf.cell(35, 7, txt=f"$ {round(total)}", border=1)
     
     pdf.ln()
