@@ -2,17 +2,17 @@ import datetime
 from fpdf import FPDF
 import requests
 
-url = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/LBP'
-url2 = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
+LBP_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/LBP'
+USD_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
+PDF_FILENAME = "AutomatedPDF.pdf"
 
 async def to_pdf(total,rows,dict_responses):
-    response = requests.get(url)
+    response = requests.get(LBP_URL)
     data = response.json()
     exchange_rate = data['conversion_rates']['USD']
-    response = requests.get(url2)
+    response = requests.get(USD_URL)
     data = response.json()
     exchange_rate2 = data['conversion_rates']['LBP']
-    filename = "AutomatedPDF.pdf"
     pdf = FPDF()
     pdf.add_page()
     pdf.image("logo.png", x=10, y=10, w=50)
@@ -74,4 +74,4 @@ async def to_pdf(total,rows,dict_responses):
     pdf.set_font("Times", size=12)
     pdf.cell(200, 5, txt = "Expenses since " + str(dict_responses['date']) + ".", ln = 1, align = 'C')
 
-    pdf.output(filename)
+    pdf.output(PDF_FILENAME)
