@@ -2,6 +2,7 @@ import datetime
 from fpdf import FPDF
 import requests
 
+#Constants for URLs and PDF filename
 LBP_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/LBP'
 USD_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
 PDF_FILENAME = "AutomatedPDF.pdf"
@@ -26,7 +27,36 @@ def create_pdf_header(pdf, dict_responses):
     pdf.cell(200, 5, txt="Category: " + str(dict_responses.get("category", "N/A")), ln=1, align='R')
     pdf.cell(200, 5, txt="Currency: " + str(dict_responses.get("currency", "N/A")), ln=1, align='R')
 
+def add_pdf_table(pdf, rows, exchange_rate, currency, total):
+    """Add a table to the PDF, including the total row."""
+    #Add table headers
+    pdf.set_fill_color(169, 169, 169)
+    pdf.cell(30, 8, border=0)
+    pdf.cell(50, 8, txt="Date", border=1, fill=True, align="C")
+    pdf.cell(50, 8, txt="Business", border=1, fill=True, align="C")
+    pdf.cell(35, 8, txt="Total", border=1, fill=True, align="C")
+    pdf.ln()
 
+    #Add table rows
+    for i, row in enumerate(rows):
+        pdf.cell(30, 7, border=0)
+        pdf.set_fill_color(255, 255, 255) if i % 2 == 0 else pdf.set_fill_color(192, 192, 192)
+        pdf.cell(50, 7, txt=row[0], border=1, fill=True)
+        pdf.cell(50, 7, txt=row[2], border=1, fill=True)
+        amount = row[1] * exchange_rate if currency != "LL - Lebanese pound" else row[1]
+        pdf.cell(35, 7, txt=f"{amount:.2f} {currency}", border=1, fill=True)
+        pdf.ln()
+
+    #Add total row
+    pdf.cell(30, 7, border=0)
+    pdf.cell(50, 7, txt="", border=1)
+    pdf.cell(50, 7, txt="Total", border=1, fill=True, align="C")
+    total_amount = total[0][0] * exchange_rate if currency != "LL - Lebanese pound" else total[0][0]
+    pdf.cell(35, 7, txt=f"{total_amount:.2f} {currency}", border=1)
+    pdf.ln()
+
+
+#Main function to generate PDF
 async def to_pdf(total,rows,dict_responses):
     #Fetch exchange rates
     lbp_rates = fetch_exchange_rate(LBP_URL)  #returns dictionary
@@ -55,38 +85,15 @@ async def to_pdf(total,rows,dict_responses):
     pdf.set_font("Times", size=12)
     pdf.cell(200, 5, txt=f"Exchange rate: {int(usd_to_lbp_rate)} LL", ln=1, align='C')
 
-    #Add table headers
+    #Add table using the add_pdf_table function
     pdf.ln()
-    pdf.set_font("Times", size=10)
-    pdf.set_fill_color(169, 169, 169)
-    pdf.cell(30, 8, border=0)
-    pdf.cell(50, 8, txt="Date", border=1, fill=True, align="C")
-    pdf.cell(50, 8, txt="Business", border=1, fill=True, align="C")
-    pdf.cell(35, 8, txt="Total", border=1, fill=True, align="C")
-    pdf.ln()
-
-    #Add table rows
-    for i, row in enumerate(rows):
-        pdf.cell(30, 7, border=0)
-        pdf.set_fill_color(255, 255, 255) if i % 2 == 0 else pdf.set_fill_color(192, 192, 192)
-        pdf.cell(50, 7, txt=row[0], border=1, fill=True)
-        pdf.cell(50, 7, txt=row[2], border=1, fill=True)
-        amount = row[1] * lbp_to_usd_rate if currency != "LL - Lebanese pound" else row[1]
-        pdf.cell(35, 7, txt=f"{amount:.2f} {currency}", border=1, fill=True)
-        pdf.ln()
-
-    #Add total row
-    pdf.cell(30, 7, border=0)
-    pdf.cell(50, 7, txt="", border=1)
-    pdf.cell(50, 7, txt="", border=1)
-    total_amount = total[0][0] * lbp_to_usd_rate if currency != "LL - Lebanese pound" else total[0][0]
-    pdf.cell(35, 7, txt=f"{total_amount:.2f} {currency}", border=1)
+    add_pdf_table(pdf, rows, lbp_to_usd_rate, currency, total)
     
     #Footer
     pdf.ln()
     pdf.ln()
     pdf.set_font("Times", size=12)
     pdf.cell(200, 5, txt=f"Expenses since {dict_responses['date']}.", ln=1, align='C')
-    
+
     #Output PDF
     pdf.output(PDF_FILENAME)
