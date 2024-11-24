@@ -5,7 +5,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.utilities import SQLDatabase 
 from langchain_core.runnables import RunnablePassthrough
 from langchain_groq import ChatGroq
+import os
 import re
+from dotenv import load_dotenv
+
+# Load Environment Variables
+load_dotenv()
 
 # Database configuration
 db_uri = f"mysql+mysqlconnector://root@localhost:3306/billmanag"
@@ -15,7 +20,7 @@ db = SQLDatabase.from_uri(db_uri)
 def get_llm(temperature=0):
     """Get configured LLM instance"""
     return ChatGroq(
-        api_key="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",
+        api_key=os.getenv("DB_groq_API"),
         model="mixtral-8x7b-32768",
         temperature=temperature
     )
