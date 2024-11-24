@@ -21,14 +21,11 @@ from dotenv import load_dotenv
 from topdf import to_pdf
 import re
 
-db_config = {
-    "host": "localhost",
-    "user": "root",
-    "database": "billmanag"
-}
+# Load Environment Variables
+load_dotenv()
 
-TOKEN: Final = '6943990377:AAG0bItw7XqnMmLRwxAlpY3YzUwq2q2ycQw'
-#TOKEN: Final = os.getenv("BOT_TOKEN")
+#TOKEN: Final = '6943990377:AAG0bItw7XqnMmLRwxAlpY3YzUwq2q2ycQw'
+TOKEN: Final = os.getenv("BOT_TOKEN")
 
 BOT_USERNAME: Final = '@Automated_billing_bot'
 

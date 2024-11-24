@@ -2,11 +2,15 @@ import json
 import mysql.connector
 import os
 from base64 import b64encode, b64decode
+from dotenv import load_dotenv
+
+# Load Environment Variables
+load_dotenv()
 
 db_config = {
-    "host": "localhost",
-    "user": "root",
-    "database": "billmanag"
+    "host": os.getenv("DB_HOST"),
+    "user": os.getenv("DB_USER"),
+    "database": os.getenv("DB_NAME"),
 }
 
 def is_present(user_id):
