@@ -8,14 +8,25 @@ import re
 EXCHANGE_RATE_API_URL = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
 OCR_OUTPUT_FILE = 'ocr_return.json'
 
+def remove_return_file():
+    """Remove the OCR output file if it exists."""
+    if os.path.exists(OCR_OUTPUT_FILE):
+        os.remove(OCR_OUTPUT_FILE)
+
+
+def is_valid_input(value):
+    """Check if a value is valid (not None or empty)."""
+    return bool(value and value != '0')
+
 def process_bill(img_path, chat, ocr):
     response = requests.get(EXCHANGE_RATE_API_URL)
     tmp = response.json()
     exchange_rate = tmp['conversion_rates']['LBP']
     data = {}
     result = ocr.ocr(img_path, cls=True)
-    if not result: #check if empty -> reset return file
-        removeReturn()
+    if not result:
+        remove_return_file()
+        return {}
         
     print(result)
     result_processed1 = {}
@@ -35,18 +46,18 @@ def process_bill(img_path, chat, ocr):
     print(result_processed1)
     res = str(result_processed1)
     response=chat.send_message("Give me the business name of this invoice:" + res + "\ngeneraly at the top.")
-    var = check(response.text)
+    var = is_valid_input(response.text)
     data['business_name'] = response.text
     response=chat.send_message("Give me the category of this invoice:" + res + "\nin 1 word; you have the choice between 'Restaurant', 'Household', 'Drugs', 'Electronics', or 'Groceries'.")
-    var = check(response.text)
+    var = is_valid_input(response.text)
     data['category'] = response.text
     response=chat.send_message("Give me the date of this invoice:" + res + "\nin format year/month/day.")
-    var = var and check(response.text)
+    var = var and is_valid_input(response.text)
     data['date'] = response.text
     response=chat.send_message("Give me the check id of this invoice:" + res + "\nin numeric.\nIf not available, say '-'.")
-    var = var and check(response.text)
+    var = var and is_valid_input(response.text)
     if(not var):
-        removeReturn()
+        remove_return_file()
     data['check_id'] = response.text
     data['total'] = 0
 
@@ -60,7 +71,7 @@ def process_bill(img_path, chat, ocr):
     for item in items:
         dict = {}
         if item[0] is None or item[1] is None or item[2] is None:
-            removeReturn()
+            remove_return_file()
         q = item[0]
         if any(char.isdigit() for char in q):
             dict['quantity'] = q
@@ -90,13 +101,3 @@ def process_bill(img_path, chat, ocr):
         json.dump(data, json_file, indent=4)
 
     return data
-
-def removeReturn():
-    if os.path.exists(OCR_OUTPUT_FILE):
-        os.remove(OCR_OUTPUT_FILE)
-    return {}
-
-def check(var):
-    if var is None or var == '0':
-        return False
-    return True
