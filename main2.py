@@ -25,11 +25,11 @@ import re
 load_dotenv()
 
 #TOKEN: Final = '6943990377:AAG0bItw7XqnMmLRwxAlpY3YzUwq2q2ycQw'
-TOKEN: Final = os.getenv(BOT_TOKEN)
+TOKEN: Final = os.getenv("BOT_TOKEN")
 
 BOT_USERNAME: Final = '@Automated_billing_bot'
 
-genai.configure(api_key=GEMINI_TOKEN)
+genai.configure(api_key=os.getenv("GEMINI_TOKEN"))
 model = genai.GenerativeModel(model_name="gemini-pro")
 chat = model.start_chat()
 

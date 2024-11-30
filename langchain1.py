@@ -20,7 +20,7 @@ db = SQLDatabase.from_uri(db_uri)
 def get_llm(temperature=0):
     """Get configured LLM instance"""
     return ChatGroq(
-        api_key=os.getenv("DB_groq_API"),
+        api_key=os.getenv("groq_API"),
         model="mixtral-8x7b-32768",
         temperature=temperature
     )
