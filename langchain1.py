@@ -5,15 +5,28 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.utilities import SQLDatabase 
 from langchain_core.runnables import RunnablePassthrough
 from langchain_groq import ChatGroq
+import os
 import re
+from dotenv import load_dotenv
 
+# Load Environment Variables
+load_dotenv()
+
+# Database configuration
 db_uri = f"mysql+mysqlconnector://root@localhost:3306/billmanag"
 db = SQLDatabase.from_uri(db_uri)
 
-#llm = ChatOpenAI(base_url="http://localhost:1234/v1", api_key="not-needed")
+# LLM Configuration
+def get_llm(temperature=0):
+    """Get configured LLM instance"""
+    return ChatGroq(
+        api_key=os.getenv("groq_API"),
+        model="mixtral-8x7b-32768",
+        temperature=temperature
+    )
 
-def is_query(user_input: str):
-  template = """
+# Templates
+QUERY_CLASSIFIER_TEMPLATE = """
     You are interacting with a user who is asking you questions about his expenses based on a data available stored in the database or just having normal conversation with you.
     Based on the table schema bellow, write 0 if the user is asking questions about the databse or write 1 if its just a normal conversational question.
 
@@ -47,41 +60,17 @@ def is_query(user_input: str):
 
     Question: {question}
     Response:
-  """
-  def get_schema(_):
-    return db.get_table_info()
-  
-  prompt = ChatPromptTemplate.from_template(template)
+"""
 
-  #llm = ChatOpenAI(base_url="http://localhost:1234/v1", api_key="not-needed", temperature=0)
-  llm = ChatGroq(api_key="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", model="mixtral-8x7b-32768", temperature=0)
-
-  chain =  (
-    RunnablePassthrough.assign(schema=get_schema)
-    | prompt
-    | llm
-    | StrOutputParser()
-  )
-  x = chain.invoke({"question": user_input })
-  return x
-
-def handle_conv(user_input: str):
-  template = """
+CONVERSATION_TEMPLATE = """
     You are a helpful assistant.
     Users will ask you questions about their expenses based on the data available in the database
     or just chat with you, and you should answer them in a formal way without too much details.
 
     User question: {question}
-  """
-  prompt = ChatPromptTemplate.from_template(template)
-  #llm = ChatOpenAI(base_url="http://localhost:1234/v1", api_key="not-needed", temperature=0)
-  llm = ChatGroq(api_key="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", model="mixtral-8x7b-32768", temperature=0)
+"""
 
-  chain = prompt | llm | StrOutputParser()
-  return chain.invoke({"question": user_input}),1
-  
-def get_sql_chain(db, user_id: int):
-  template = """
+SQL_QUERY_TEMPLATE = """
     You are a data analyst. You are interacting with a user who is asking you questions about his expenses based on the data available in the database.
     Based on the table schema below, write a SQL query that would answer the user's question. 
     whenever the user asks about his total spending give him a detailed answer.
@@ -117,65 +106,95 @@ def get_sql_chain(db, user_id: int):
     
     Question: {question}
     SQL Query:
-    """
-    
-  prompt = ChatPromptTemplate.from_template(template)
-  
-  #llm = ChatOpenAI(base_url="http://localhost:1234/v1", api_key="not-needed", temperature=0)
-  llm = ChatGroq(api_key="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", model="mixtral-8x7b-32768", temperature=0)
-  
-  def get_schema(_):
-    return db.get_table_info()
-  
-  def get_user_id(_):
-    return user_id
-  
-  return (
-    RunnablePassthrough.assign(schema=get_schema).assign(user_id=get_user_id)
-    | prompt
-    | llm
-    | StrOutputParser()
-  )
+"""
 
-def get_response(user_query: str, user_id: int):
-  
-  a = is_query(user_query)
-  if a == 0 or "0" in a:
-    sql_chain = get_sql_chain(db, user_id)
+RESPONSE_TEMPLATE = """
+    You are a data analyst at a company. You are interacting with a user who is asking you questions about the company's database.
+    Based on the table schema below, question, sql query, and sql response, write a natural language response.Do not mention the userid of the user.give the number as it is writen and add LL after it, do not convert any number to united states dollars on your own.Keep your responses very breif and don't go into details.
+    Add LL after any amount of money which is the Lebanses currency.
+    add , if the number is more than 999 for example is the number is 1000000 wirte it 1,000,000 LL.
     
-    template = """
-      You are a data analyst at a company. You are interacting with a user who is asking you questions about the company's database.
-      Based on the table schema below, question, sql query, and sql response, write a natural language response.Do not mention the userid of the user.give the number as it is writen and add LL after it, do not convert any number to united states dollars on your own.Keep your responses very breif and don't go into details.
-      Add LL after any amount of money which is the Lebanses currency.
-      add , if the number is more than 999 for example is the number is 1000000 wirte it 1,000,000 LL.
-      
-      <SCHEMA>{schema}</SCHEMA>
-      
-      SQL Query: <SQL>{query}</SQL>
-      User question: {question}
-      SQL Response: {response}"""
+    <SCHEMA>{schema}</SCHEMA>
     
+    SQL Query: <SQL>{query}</SQL>
+    User question: {question}
+    SQL Response: {response}
+"""
+
+def create_chain(template, assign_vars=None):
+    """Create a chain with the given template and optional variable assignments"""
     prompt = ChatPromptTemplate.from_template(template)
-
-    #llm = ChatOpenAI(base_url="http://localhost:1234/v1", api_key="not-needed", temperature=0)
-    llm = ChatGroq(api_key="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", model="mixtral-8x7b-32768", temperature=0)
+    llm = get_llm()
     
-    chain = (
-      RunnablePassthrough.assign(query=sql_chain).assign(
-        schema=lambda _: db.get_table_info(),
-        response=lambda vars: db.run(vars["query"]),
-      )
-      | prompt
-      | llm
-      | StrOutputParser()
+    if assign_vars:
+        chain = (
+            RunnablePassthrough.assign(**assign_vars)
+            | prompt
+            | llm
+            | StrOutputParser()
+        )
+    else:
+        chain = prompt | llm | StrOutputParser()
+    
+    return chain
+
+def is_query(user_input: str):
+    """Determine if the input is a database query or conversation"""
+    def get_schema(_):
+        return db.get_table_info()
+    
+    chain = create_chain(
+        QUERY_CLASSIFIER_TEMPLATE,
+        {"schema": get_schema}
+    )
+    return chain.invoke({"question": user_input})
+
+def handle_conv(user_input: str):
+    """Handle conversational inputs"""
+    chain = create_chain(CONVERSATION_TEMPLATE)
+    return chain.invoke({"question": user_input}), 1
+
+def get_sql_chain(db, user_id: int):
+    """Create SQL query chain"""
+    def get_schema(_):
+        return db.get_table_info()
+    
+    def get_user_id(_):
+        return user_id
+    
+    return create_chain(
+        SQL_QUERY_TEMPLATE,
+        {
+            "schema": get_schema,
+            "user_id": get_user_id
+        }
     )
 
-    query = sql_chain.invoke({"question": user_query })
-    i1 = query.index("SELECT")
-    i2 = query.index("FROM")
-    str = query[i1+len("SELECT")+1:i2]
-    if "image" in str:
-      return query,0
-    return chain.invoke({"question": user_query }),1
-  else:
-    return handle_conv(user_query)
+def get_response(user_query: str, user_id: int):
+    """Process user query and return appropriate response"""
+    a = is_query(user_query)
+    
+    if a == "0" or "0" in a:
+        sql_chain = get_sql_chain(db, user_id)
+        query = sql_chain.invoke({"question": user_query})
+        
+        # Check if query is requesting image
+        i1 = query.index("SELECT")
+        i2 = query.index("FROM")
+        select_clause = query[i1+len("SELECT")+1:i2]
+        if "image" in select_clause:
+            return query, 0
+            
+        # Create response chain
+        chain = create_chain(
+            RESPONSE_TEMPLATE,
+            {
+                "query": lambda _: sql_chain.invoke({"question": user_query}),
+                "schema": lambda _: db.get_table_info(),
+                "response": lambda vars: db.run(vars["query"])
+            }
+        )
+        
+        return chain.invoke({"question": user_query}), 1
+    else:
+        return handle_conv(user_query)
