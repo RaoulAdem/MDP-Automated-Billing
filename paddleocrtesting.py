@@ -1,100 +1,119 @@
-import ast
-import json
 import os
+import ast
 import requests
-import re
+import json
 
-url = 'https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD'
+#Constants
+OCR_OUTPUT_FILE = "ocr_return.json"
+EXCHANGE_RATE_API_URL = "https://v6.exchangerate-api.com/v6/df71466400a9e7db30b617b1/latest/USD"
+
+def remove_return_file():
+    """Remove the OCR output file if it exists."""
+    if os.path.exists(OCR_OUTPUT_FILE):
+        os.remove(OCR_OUTPUT_FILE)
+
+
+def is_valid_input(value):
+    """Check if a value is valid (not None or empty)."""
+    return bool(value and value != "0")
+
+
+def normalize_price(price, exchange_rate):
+    """Normalize the price based on exchange rate."""
+    if not price:
+        return "0"
+    price = price.replace("O", "0").replace("$", "").strip()
+    try:
+        value = float(price)
+        if value < 10000:  #Assume it's in USD if < 10000
+            value *= exchange_rate
+        return str(int(value))
+    except ValueError:
+        return "0"
+
+
+def parse_items(items_text, exchange_rate):
+    """Parse items into structured format."""
+    items = ast.literal_eval(items_text)
+    total = 0
+    parsed_items = []
+    for item in items:
+        quantity, name, price = item
+        normalized_price = normalize_price(price, exchange_rate)
+        parsed_items.append({"quantity": quantity, "name": name, "price": normalized_price})
+        total += int(normalized_price)
+    return parsed_items, total
+
+
+def parse_ocr_result(ocr_result):
+    """Parse OCR result into structured format."""
+    result_processed = {}
+    for line in ocr_result:
+        try:
+            y_coord = str(line[0][0][1])  #Ensure y_coord is a string
+            text = line[-1][1]
+            result_processed[y_coord] = result_processed.get(y_coord, "") + " " + text
+        except (IndexError, TypeError):
+            continue
+    return result_processed
+
+
+def get_invoice_details(chat, ocr_text, data):
+    """Get invoice details via chat."""
+    details = ["business_name", "category", "date", "check_id"]
+    prompts = [
+        "Give me the business name of this invoice: ",
+        "Give me the category of this invoice (e.g., Restaurant): ",
+        "Give me the date of this invoice (YYYY/MM/DD): ",
+        "Give me the check ID of this invoice (numeric or '-'): ",
+    ]
+    for detail, prompt in zip(details, prompts):
+        response = chat.send_message(prompt + ocr_text)
+        if not is_valid_input(response.text):
+            remove_return_file()
+            return {}
+        data[detail] = response.text
+    return data
 
 def process_bill(img_path, chat, ocr):
-    response = requests.get(url)
-    tmp = response.json()
-    exchange_rate = tmp['conversion_rates']['LBP']
-    data = {}
+    """Process the bill from the given image."""
+    #Fetch exchange rate
+    try:
+        response = requests.get(EXCHANGE_RATE_API_URL)
+        response.raise_for_status()
+        exchange_rate = response.json().get("conversion_rates", {}).get("LBP", 1)
+    except requests.RequestException:
+        remove_return_file()
+        return {}
+
+    #Perform OCR
     result = ocr.ocr(img_path, cls=True)
-    if not result: #check if empty -> reset return file
-        removeReturn()
-        
-    print(result)
-    result_processed1 = {}
-    for idx in range(len(result)):
-        res = result[idx]
-        for line in res:
-            precision = line[-1][1] #precision score
-            if(precision < 0.75):
-                continue
-            tmpc = line[0][0][1] #y
-            text = line[-1][0]
-            if(tmpc in result_processed1):
-                result_processed1[tmpc] += " " + text
-            else:
-                result_processed1[tmpc] = text
+    if not result:
+        remove_return_file()
+        return {}
 
-    print(result_processed1)
-    res = str(result_processed1)
-    response=chat.send_message("Give me the business name of this invoice:" + res + "\ngeneraly at the top.")
-    var = check(response.text)
-    data['business_name'] = response.text
-    response=chat.send_message("Give me the category of this invoice:" + res + "\nin 1 word; you have the choice between 'Restaurant', 'Household', 'Drugs', 'Electronics', or 'Groceries'.")
-    var = check(response.text)
-    data['category'] = response.text
-    response=chat.send_message("Give me the date of this invoice:" + res + "\nin format year/month/day.")
-    var = var and check(response.text)
-    data['date'] = response.text
-    response=chat.send_message("Give me the check id of this invoice:" + res + "\nin numeric.\nIf not available, say '-'.")
-    var = var and check(response.text)
-    if(not var):
-        removeReturn()
-    data['check_id'] = response.text
-    data['total'] = 0
+    #Parse OCR result
+    ocr_text = str(parse_ocr_result(result))
+    data = {}
+    data = get_invoice_details(chat, ocr_text, data)
+    if not data:
+        return {}
 
-    with open('ocr_return.json', 'w') as json_file:
-        json.dump(data, json_file, indent=4)
+    #Get items and calculate total
+    response = chat.send_message(
+        "Give me all the items displayed in this invoice as a list in the format: "
+        "[['quantity', 'name', 'price'], ...]"
+    )
+    try:
+        parsed_items, total = parse_items(response.text, exchange_rate)
+    except (SyntaxError, ValueError):
+        remove_return_file()
+        return {}
 
-    response=chat.send_message("Give me all the items displayed in this invoice in form of a dictionary:" + res + "\nin a python list in a format ['quantity','name','price'], for example: [['Quantity1','Name1','Price1'],['Quantity2','Name2','Price2']].")
-    items = ast.literal_eval(response.text)
-    i = 1
-    total = 0
-    for item in items:
-        dict = {}
-        if item[0] is None or item[1] is None or item[2] is None:
-            removeReturn()
-        q = item[0]
-        if any(char.isdigit() for char in q):
-            dict['quantity'] = q
-        else:
-            dict['quantity'] = '0'
-        dict['name'] = item[1]
-        p = item[2]
-        if 'O' in p:
-            p = p.replace('O','0')
-        p = re.sub(r'^[^0-9.]*([0-9]+\.?[0-9]*)[^0-9.]*$', r'\1', p)
-        if p:
-            if '$' in p:
-                p = p.replace('$', '')
-                p = str(int(float(p) * exchange_rate))  # actual rate
-            elif '.' in p:
-                if float(p) < 10000:  # == in $
-                    p = str(int(float(p) * exchange_rate))
-        else:
-            p = '0'
-        dict['price'] = p
-        total += float(p)
-        data['item' + str(i)] = dict
-        i += 1
-    data['total'] = str(int(total))
+    data.update({"items": parsed_items, "total": str(total)})
 
-    with open('ocr_return.json', 'w') as json_file:
+    #Save to file
+    with open(OCR_OUTPUT_FILE, "w") as json_file:
         json.dump(data, json_file, indent=4)
 
     return data
-
-def removeReturn():
-    if os.path.exists('ocr_return.json'):
-        os.remove('ocr_return.json')
-    return {}
-
-def check(var):
-    if var is None or var == '0':
-        return False
-    return True
